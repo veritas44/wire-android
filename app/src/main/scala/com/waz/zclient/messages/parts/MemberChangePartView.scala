@@ -20,25 +20,21 @@ package com.waz.zclient.messages.parts
 import android.content.Context
 import android.graphics.drawable.Drawable
 import android.util.AttributeSet
-import android.view.ViewGroup.MarginLayoutParams
-import android.widget.{GridLayout, LinearLayout}
+import android.widget.LinearLayout
 import com.waz.ZLog.ImplicitTag._
-import com.waz.ZLog._
 import com.waz.api.Message
-import com.waz.model.{MessageContent, UserId}
+import com.waz.model.MessageContent
 import com.waz.service.ZMessaging
 import com.waz.service.messages.MessageAndLikes
 import com.waz.threading.Threading
 import com.waz.utils.events.Signal
-import com.waz.utils.returning
-import com.waz.zclient.common.views.ChatheadView
 import com.waz.zclient.messages.MessageView.MsgBindOptions
 import com.waz.zclient.messages.UsersController.DisplayName.{Me, Other}
 import com.waz.zclient.messages._
 import com.waz.zclient.paintcode.ConversationIcon
 import com.waz.zclient.utils.ContextUtils._
-import com.waz.zclient.{R, ViewHelper}
 import com.waz.zclient.utils.RichView
+import com.waz.zclient.{R, ViewHelper}
 
 class MemberChangePartView(context: Context, attrs: AttributeSet, style: Int) extends LinearLayout(context, attrs, style) with MessageViewPart with ViewHelper {
   def this(context: Context, attrs: AttributeSet) = this(context, attrs, 0)
@@ -54,7 +50,6 @@ class MemberChangePartView(context: Context, attrs: AttributeSet, style: Int) ex
   val users      = inject[UsersController]
 
   val messageView: SystemMessageView  = findById(R.id.smv_header)
-  val gridView: MembersGridView       = findById(R.id.people_changed_grid)
   val position = Signal[Int]()
 
   val iconGlyph: Signal[Either[Int, Drawable]] = message map { msg =>
@@ -115,62 +110,4 @@ class MemberChangePartView(context: Context, attrs: AttributeSet, style: Int) ex
 
   linkText.on(Threading.Ui) { messageView.setText }
 
-  message.map(_.members.toSeq.sortBy(_.str)) { gridView.users ! _ }
-
-}
-
-class MembersGridView(context: Context, attrs: AttributeSet, style: Int) extends GridLayout(context, attrs, style) with ViewHelper {
-  def this(context: Context, attrs: AttributeSet) = this(context, attrs, 0)
-  def this(context: Context) = this(context, null, 0)
-
-  val cache = inject[MessageViewFactory]
-  val chatHeadResId = R.layout.message_member_chathead
-
-  val users = Signal[Seq[UserId]]()
-
-  val columnSpacing = getDimenPx(R.dimen.wire__padding__small)
-  val columnWidth = getDimenPx(R.dimen.content__separator__chathead__size)
-
-  val columns = Signal[Int]() //once set, we expect this won't change, even across recycling
-
-  (for {
-    cols <- columns
-    ids <- users
-  } yield (ids, cols)).on(Threading.Ui) {
-    case (ids, cols) =>
-      val rows = math.ceil(ids.size.toFloat / cols.toFloat).toInt
-      verbose(s"Cols or Users changed: users: ${ids.length}, cols: $cols, rows: $rows")
-
-      //recycle and remove all the views - there might be more than the current number of users
-      (0 until getChildCount).map(getChildAt).foreach(cache.recycle(_, chatHeadResId))
-      removeAllViews()
-
-      setColumnCount(cols)
-      setRowCount(rows)
-
-      ids.foreach { id =>
-        returning(cache.get[ChatheadView](chatHeadResId, this)) { v =>
-
-          /**
-            * We need to reset the GridLayout#LayoutParams, as the GridLayout assigns each view a specific row x column
-            * coordinate. If the number of rows/columns shrinks, then any view with coordinates that lie outside the
-            * new bounds will cause the view to crash. However, we need to maintain the size and margin info specified
-            * in the xml, which should always be instances of MarginLayoutParams, and this does the trick!
-            */
-          addView(v, new GridLayout.LayoutParams(v.getLayoutParams.asInstanceOf[MarginLayoutParams]))
-          v.setUserId(id)
-        }
-      }
-  }
-
-
-  override def onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int): Unit = {
-    super.onLayout(changed, left, top, right, bottom)
-
-    val width = getMeasuredWidth + columnSpacing
-    val itemWidth = columnWidth + columnSpacing
-
-    val res = math.max(1, width / itemWidth)
-    columns ! res
-  }
 }
